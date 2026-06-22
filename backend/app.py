@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.router import api_router
 from backend.core.config import Settings, settings
+from backend.core.database import dispose_engine
 from backend.core.logging import configure_logging
 
 
@@ -31,6 +32,7 @@ def create_app(
         try:
             yield
         finally:
+            await dispose_engine()
             await logger.ainfo("application_stopped")
 
     application = FastAPI(

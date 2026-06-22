@@ -3,6 +3,10 @@ from typing import Literal
 from fastapi import APIRouter, status
 from pydantic import BaseModel
 
+from backend.modules.users.presentation.router import (
+    router as users_router,
+)
+
 
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
@@ -24,5 +28,6 @@ async def health_check() -> HealthResponse:
 # The API version prefix is applied by create_app through Settings.api_v1_prefix.
 api_router = APIRouter()
 api_router.include_router(health_router)
+api_router.include_router(users_router)
 
 # Future feature routers are registered below this line.
