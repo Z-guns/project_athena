@@ -11,34 +11,13 @@ from backend.modules.users.infrastructure.models.user import UserORM
 
 
 class SQLAlchemyUserRepository(UserRepository):
-    """SQLAlchemy implementation of UserRepository for async operations."""
+    """SQLAlchemy implementation of UserRepository."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
     async def add(self, user: User) -> None:
-        """Persist a new user."""
-        orm = self._to_orm(user)
-        self._session.add(orm)
-
-    async def get_by_id(self, user_id: UUID) -> User | None:
-        """Return a user by identity, if one exists."""
-        stmt = select(UserORM).where(UserORM.id == user_id)
-        result = await self._session.execute(stmt)
-        orm = result.scalar_one_or_none()
-        return self._to_domain(orm) if orm is not None else None
-
-    async def get_by_email(self, email: Email) -> User | None:
-        """Return a user by normalized email, if one exists."""
-        stmt = select(UserORM).where(UserORM.email == email.value)
-        result = await self._session.execute(stmt)
-        orm = result.scalar_one_or_none()
-        return self._to_domain(orm) if orm is not None else None
-
-    @staticmethod
-    def _to_orm(user: User) -> UserORM:
-        """Convert domain User aggregate to ORM persistence model."""
-        return UserORM(
+        orm = UserORM(
             id=user.id,
             email=user.email.value,
             password_hash=user.password_hash.value,
@@ -48,9 +27,29 @@ class SQLAlchemyUserRepository(UserRepository):
             updated_at=user.updated_at,
         )
 
-    @staticmethod
-    def _to_domain(orm: UserORM) -> User:
-        """Convert ORM persistence model to domain User aggregate."""
+        self._session.add(orm)
+
+    async def get_by_id(self, user_id: UUID) -> User | None:
+        stmt = select(UserORM).where(UserORM.id == user_id)
+        result = await self._session.execute(stmt)
+        orm = result.scalar_one_or_none()
+
+        if orm is None:
+            return None
+
+        return self._to_domain(orm)
+
+    async def get_by_email(self, email: Email) -> User | None:
+        stmt = select(UserORM).where(UserORM.email == email.value)
+        result = await self._session.execute(stmt)
+        orm = result.scalar_one_or_none()
+
+        if orm is None:
+            return None
+
+        return self._to_domain(orm)
+
+    def _to_domain(self, orm: UserORM) -> User:
         return User(
             id=orm.id,
             email=Email(orm.email),
