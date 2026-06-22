@@ -6,6 +6,6 @@ from uuid import UUID
 class RegisterUserResponse:
     """Response DTO for user registration."""
 
-    user_id: UUID
+    id: UUID
     email: str
     display_name: str
