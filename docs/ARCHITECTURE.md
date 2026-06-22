@@ -1,155 +1,149 @@
-# Project Athena Architecture
+# Athena AI — Backend Architecture
 
-## Project Vision
+This document is a concise, production-ready reference for backend engineers joining Athena AI. It
+describes the project's design goals, technology choices, layer responsibilities, and rules that
+preserve long-term maintainability.
 
-Project Athena is a modular, AI-enabled platform for coordinating specialized agents, durable
-knowledge, research, decisions, tasks, and platform interactions. The system is designed to grow
-incrementally without coupling business rules to web frameworks, databases, model providers, or
-automation tools.
+## 1. Vision
 
-The architecture prioritizes:
+Athena AI is an extensible platform for composing AI-driven agents and domain-specific workflows.
+The backend's mission is to enable durable, auditable automation while keeping business rules
+independent from delivery frameworks, storage engines, and provider implementations. Over time the
+platform should support: multi-provider AI strategies, safe autonomous actions, durable memory,
+and scalable coordination of specialized agents — all while preserving testability and clear
+ownership boundaries.
 
-- explicit domain boundaries;
-- independently testable business logic;
-- replaceable infrastructure and AI providers;
-- observable, secure production behavior;
-- small, reviewable increments over speculative implementation.
+## 2. Technology Stack
 
-## Architectural Style
+- Python 3.13
+- FastAPI (presentation)
+- SQLAlchemy 2.0 (async ORM)
+- PostgreSQL
+- AsyncIO
+- structlog (structured logging)
+- Ruff (linting)
+- MyPy (static typing)
+- Pytest (testing)
 
-Athena follows Clean Architecture within a modular monolith. Each business module owns its domain
-model and use cases while sharing only carefully selected primitives through the shared kernel.
-Modules may later be extracted into services if operational needs justify the additional cost.
+## 3. Architectural Principles
 
-Dependencies always point inward:
+- Clean Architecture: strict separation between Domain, Application, Infrastructure and
+  Presentation layers, with dependencies pointing inward.
+- Domain-Driven Design: model core business concepts with entities, value objects, and domain
+  errors; keep invariants inside the domain.
+- SOLID + DI: single responsibility, explicit interfaces, and constructor injection to enable testing
+  and composition.
+- Repository Pattern & Unit of Work: repositories map between ORM and domain; Unit of Work
+  encapsulates transaction boundaries (commit/rollback/close).
+- CQRS-ready design: use cases are structured so commands and queries can be separated when
+  warranted.
 
-```text
-Presentation -> Application -> Domain
-Infrastructure -> Application and Domain ports
-```
+## 4. Layer Structure
 
-The domain layer has no dependency on FastAPI, SQLAlchemy, external APIs, message brokers, or other
-delivery and infrastructure concerns.
+- Domain
+  - Contains entities, value objects, domain errors and domain services.
+  - No external dependencies; represents the canonical business model.
 
-## Layer Responsibilities
+- Application
+  - Implements use cases (interactors), defines interfaces (ports) for persistence and external
+    systems, and orchestrates domain operations.
+  - Depends on Domain abstractions only; communicates with infrastructure via interfaces.
 
-### Domain
+- Infrastructure
+  - Implements repository ports, unit-of-work, database models, and external adapters.
+  - Depends on Application and Domain ports; contains framework-specific code.
 
-The domain layer contains entities, value objects, domain services, domain events, repository
-contracts, and domain exceptions. It expresses business invariants and must remain deterministic
-where practical.
+- Presentation
+  - FastAPI routers, request/response schemas, authentication and authorization adapters.
+  - Thin layer that validates and maps input, invokes use cases, and returns responses.
 
-### Application
+Allowed dependencies follow the inward rule: Presentation -> Application -> Domain. Infrastructure
+implements the outbound ports consumed by Application.
 
-The application layer coordinates use cases. It defines commands, queries, handlers, transaction
-boundaries, and ports required from infrastructure. It may depend on the domain, but it must not
-depend on concrete adapters.
+## 5. Folder Structure
 
-### Infrastructure
+Core layout (existing repository):
 
-The infrastructure layer implements application and domain ports using PostgreSQL, Redis, AI
-providers, browser automation, external APIs, and other technical systems. Infrastructure failures
-must be translated into stable application-facing errors.
+- `backend/` — application package
+  - `api/` — router composition and endpoints
+  - `core/` — configuration, logging, database bootstrap
+  - `modules/` — business modules (each a bounded context)
+    - `<module>/domain/` — domain entities, value objects, exceptions
+    - `<module>/application/` — use cases, ports, commands, services
+    - `<module>/infrastructure/` — ORM models, repositories, adapters, unit-of-work
+    - `<module>/presentation/` — FastAPI adapters and thin mapping code
+  - `shared_kernel/` — small, stable primitives reused across modules
 
-### Presentation
+This structure matches the current repository layout; add new folders only when introducing a new
+bounded context and after review.
 
-The presentation layer exposes use cases through FastAPI routers and request/response schemas. It
-handles transport concerns such as authentication, validation, status codes, and serialization. It
-must not contain business rules or issue database queries directly.
+## 6. Request Flow
 
-## Domain-Driven Design Boundaries
+1. HTTP request arrives at FastAPI endpoint (presentation).
+2. Endpoint validates input, applies auth, and constructs a command/DTO.
+3. Endpoint calls an Application use case (single responsibility) with injected ports.
+4. Use case interacts with Repository interfaces and domain entities to perform work.
+5. Repository implementations in Infrastructure map domain entities to ORM models and persist via
+   AsyncSession.
+6. Unit of Work controls transaction boundaries (commit/rollback) and closes the session.
+7. Use case returns domain result; endpoint maps it to a response and returns to the client.
 
-Each directory under `backend/modules` represents a bounded context. Current planned contexts are:
+This flow mirrors the repository and unit-of-work implementations present under
+`backend/modules/users/infrastructure`.
 
-- orchestrator;
-- memory;
-- research;
-- decision;
-- task manager;
-- journal;
-- character management;
-- account intelligence;
-- growth engine;
-- browser;
-- platform agents.
+## 7. Dependency Rules
 
-A bounded context owns its language, models, persistence mappings, and public application
-contracts. One context must not import another context's internal domain or infrastructure code.
-Cross-context collaboration occurs through explicit application contracts, domain events, or an
-integration bus.
+- Domain: no external dependencies.
+- Application: may depend on Domain and application-level interfaces (ports).
+- Presentation: depends on Application only.
+- Infrastructure: depends on Application and Domain ports and contains concrete adapters.
 
-The shared kernel is intentionally small. It may contain stable, broadly meaningful abstractions
-such as base domain events, identifiers, result types, and transaction or messaging interfaces. It
-must not become a miscellaneous utilities package.
+Enforce these rules with code reviews and import checks; do not allow direct infrastructure imports
+inside Application or Domain modules.
 
-## Dependency and Integration Rules
+## 8. Database Rules
 
-- Domain code imports only the Python standard library and approved domain-level primitives.
-- Application code depends on domain abstractions, never concrete infrastructure.
-- Infrastructure adapters implement inward-facing ports and are wired at the composition root.
-- Presentation code calls application use cases rather than repositories or provider SDKs.
-- Modules communicate through explicit contracts; private module internals remain private.
-- Provider-specific models never cross adapter boundaries.
-- Configuration is loaded centrally and injected where practical.
-- Side effects occur at explicit boundaries and are covered by integration tests.
-- Circular dependencies between modules or layers are prohibited.
+- ORM models live in `infrastructure.models` and are pure persistence representations (SQLAlchemy
+  mapped columns, constraints, and indexes).
+- Domain entities implement business invariants and are independent from ORM concerns.
+- Repositories are the only place that map ORM instances to domain entities and vice versa. Keep
+  this mapping explicit and well-tested.
+- Unit of Work implementations (infrastructure) manage AsyncSession lifecycle and ensure commit,
+  rollback and session close semantics.
 
-## API and Composition
+## 9. Coding Standards
 
-`backend/app.py` is the application composition root. It configures logging and middleware, manages
-the FastAPI lifespan, and registers the root API router. API versioning is controlled by the
-configured prefix, currently `/api/v1`.
+- Follow `.github/copilot-instructions.md` for automated code generation guidance.
+- Target Ruff and MyPy: use modern typing (`Self`, `|` unions), avoid `Any` when possible.
+- Keep functions small, prefer early returns, and limit line length to 100 characters.
+- Tests: unit tests for Domain and Application; integration tests for Infrastructure; end-to-end for
+  critical workflows.
 
-`backend/api/router.py` composes health and future feature routers. Feature endpoints should live in
-their owning bounded context and be included by the root router through an explicit registration.
+## 10. Git Workflow
 
-Health checks must remain lightweight. Liveness should report process availability; future
-readiness checks may verify required dependencies without leaking credentials or internal details.
+- Create a feature branch for each change.
+- Make focused commits with clear messages and small diffs.
+- Open a Pull Request that documents intent, design rationale and testing strategy.
+- Ensure CI (linters, type checks, tests) passes before merge.
 
-## Data and Transactions
+## 11. Future Architecture (Modules)
 
-PostgreSQL is the authoritative relational store. SQLAlchemy models are infrastructure concerns and
-must not replace domain entities. Repository interfaces belong inward; implementations belong in
-infrastructure.
+Future modules (examples) must follow the same pattern and be introduced as bounded contexts:
 
-Transactions should align with one application use case. Cross-context consistency should prefer
-domain events and eventual consistency over distributed transactions. Alembic migrations are the
-only supported mechanism for production schema changes.
+- Authentication, AI Agents, Memory, Notifications, Meetings, Analytics.
 
-Redis may support caching, coordination, rate limiting, and transient messaging. It must not become
-the unowned source of truth for domain state.
+Each module must own its domain, application and infrastructure boundaries and reuse shared
+interfaces from the `shared_kernel` where appropriate.
 
-## AI and External Providers
+## 12. Non-negotiable Rules
 
-OpenAI, Gemini, Anthropic, vector databases, social platforms, and Playwright are external adapters.
-Application code targets provider-neutral interfaces. Adapter responsibilities include request
-translation, timeouts, retries where safe, rate-limit handling, response validation, and telemetry.
+- Never duplicate implementations.
+- Never place business logic inside presentation endpoints.
+- Never access SQLAlchemy from use cases or domain code.
+- Never violate Clean Architecture dependency direction.
+- Never commit placeholder code or TODOs.
 
-Prompts and model settings are versioned artifacts. Sensitive input and credentials must never be
-written to logs. Autonomous actions require explicit authorization boundaries and auditable events.
+---
 
-## Security and Observability
-
-- Secrets come from environment-backed settings and are never committed.
-- Production rejects placeholder secrets and debug mode.
-- CORS uses an explicit allowlist; wildcard origins are not a production default.
-- Authentication and authorization are enforced at transport and use-case boundaries.
-- Logs are structured JSON in production and readable colored output in development.
-- Logs use stable event names and contextual fields rather than interpolated prose.
-- Errors exposed through APIs contain safe messages and correlation identifiers.
-- Metrics and tracing may be added at infrastructure boundaries without changing domain logic.
-
-## Testing Boundaries
-
-- Unit tests cover domain invariants and application use cases without network or database access.
-- Integration tests cover repositories, migrations, provider adapters, and module wiring.
-- End-to-end tests cover a small number of critical workflows through public interfaces.
-- Tests follow the same module boundaries as production code.
-- External systems are replaced at defined ports, not patched through domain internals.
-
-## Architectural Decision Policy
-
-Significant decisions should be recorded before implementation when they affect module boundaries,
-data ownership, security, deployment, or irreversible provider choices. Architecture evolves through
-measured changes; new abstractions must solve a current boundary problem rather than anticipate an
-unknown one.
+Document maintained by the architecture team. Use this as the canonical onboarding and review
+reference.
