@@ -8,12 +8,12 @@ from backend.infrastructure.database.base import Base
 
 
 class UserORM(Base):
-    """Pure persistence model for User entity in PostgreSQL."""
+    """SQLAlchemy persistence model for users."""
 
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(
-        SAUUIDType(native_uuid=True),
+        SAUUIDType,
         primary_key=True,
     )
 
@@ -36,6 +36,7 @@ class UserORM(Base):
 
     is_active: Mapped[bool] = mapped_column(
         Boolean,
+        nullable=False,
         default=True,
         server_default=text("true"),
     )

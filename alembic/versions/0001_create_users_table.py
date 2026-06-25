@@ -21,7 +21,7 @@ def upgrade() -> None:
     """Apply this revision."""
     op.create_table(
         "users",
-        sa.Column("id", sa.UUID(native_uuid=True), nullable=False),
+        sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("email", sa.String(254), nullable=False),
         sa.Column("password_hash", sa.String(255), nullable=False),
         sa.Column("display_name", sa.String(100), nullable=False),
@@ -46,7 +46,13 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("email"),
     )
-    op.create_index(op.f("ix_users_email"), "users", ["email"], unique=False)
+
+    op.create_index(
+        op.f("ix_users_email"),
+        "users",
+        ["email"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
